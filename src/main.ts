@@ -23,3 +23,20 @@ fetchPage("https://books.toscrape.com/catalogue/page-1.html") .then(html => {
     console.log(html.length);
     console.log(html.slice ( 0, 300));
 });
+
+
+async function fetchCatalougePage(pageNum: number): Promise<string> {
+  const cachePath = `cache/catalogue-page-${pageNum}.html`;
+
+  if (existsSync(cachePath)) {
+    console.log(`CACHE HIT: ${cachePath}`);
+    const html = readFileSync(cachePath, "utf-8");
+    return html;
+  }
+
+  const url = `https://books.toscrape.com/catalogue/page-${pageNum}.html`;
+  console.log(`FETCH: ${url}`);
+  const html = await fetchPage(url);
+  writeFileSync(cachePath, html, "utf-8");
+  return html;
+}
