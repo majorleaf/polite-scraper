@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import * as cheerio from "cheerio";
 
 
 async function fetchPage(url : string): Promise<string> { 
@@ -20,6 +21,10 @@ async function fetchPage(url : string): Promise<string> {
 }
 
 fetchCatalougePage(1) .then(html => {
+    const $ = cheerio.load(html);
+    const firstLink =$("article.product_pod h3 a").first();
+    console.log(firstLink.attr("href"));
+    console.log(firstLink.attr("title"));
     console.log(html.length);
     console.log(html.slice ( 0, 300));
 });
