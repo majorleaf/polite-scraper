@@ -25,8 +25,6 @@ fetchCatalougePage(1) .then(html => {
     const firstLink =$("article.product_pod h3 a").first();
     console.log(firstLink.attr("href"));
     console.log(firstLink.attr("title"));
-    console.log(html.length);
-    console.log(html.slice ( 0, 300));
 });
 
 
