@@ -22,9 +22,14 @@ async function fetchPage(url : string): Promise<string> {
 
 fetchCatalougePage(1) .then(html => {
     const $ = cheerio.load(html);
-    const firstLink =$("article.product_pod h3 a").first();
-    console.log(firstLink.attr("href"));
-    console.log(firstLink.attr("title"));
+    const links: string[] = [];
+
+    $("article.product_pod h3 a").each((_, el) => {
+        const href = $(el).attr("href");
+        if (href) links.push(href);
+    });
+    console.log(links.length);
+    console.log(links[0]);
 });
 
 
