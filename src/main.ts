@@ -19,7 +19,7 @@ async function fetchPage(url : string): Promise<string> {
    return html;
 }
 
-fetchPage("https://books.toscrape.com/catalogue/page-1.html") .then(html => {
+fetchCatalougePage(1) .then(html => {
     console.log(html.length);
     console.log(html.slice ( 0, 300));
 });
