@@ -20,16 +20,44 @@ async function fetchPage(url : string): Promise<string> {
    return html;
 }
 
+function extractBooksLinksAndNext(html: string, pageUrl: string): { bookLinks: string[]; nextPageUrl: string | null } {
+    const $ = cheerio.load(html);
+    const bookLinks: string[] = [];
+
+  $("article.product_pod h3 a").each((_, el) => {
+    const href = $(el).attr("href");
+    if (href) {
+      bookLinks.push(new URL(href, pageUrl).toString());
+    }
+  });
+
+  const nextHref = $("li.next a").attr("href");
+  const nextPageUrl = nextHref ? new URL(nextHref, pageUrl).toString() : null;
+
+  return { bookLinks, nextPageUrl };
+}
+
 fetchCatalougePage(1) .then(html => {
     const $ = cheerio.load(html);
+  const pageUrl = "https://books.toscrape.com/catalogue/page-1.html";
     const links: string[] = [];
 
     $("article.product_pod h3 a").each((_, el) => {
         const href = $(el).attr("href");
-        if (href) links.push(href);
+        if (href) {
+            const absoluteUrl = new URL(href, pageUrl).toString();
+            links.push(absoluteUrl);
+        }
     });
+
+    const nextHref = $("li.next a").attr("href");
+    const nextPageUrl = nextHref ? new URL(nextHref, pageUrl).toString() : null;
+
     console.log(links.length);
     console.log(links[0]);
+    console.log("next page:", nextPageUrl);
+    console.log("result.bookLinks.length");
+    console.log("result.nextPageUrl");
 });
 
 
