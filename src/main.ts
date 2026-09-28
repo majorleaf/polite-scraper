@@ -1,28 +1,54 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import * as cheerio from "cheerio";
 
+const MAX_PAGES = 3;
+const DELAY_MS = 600;
 
-async function fetchPage(url : string): Promise<string> { 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10_000);
-   const response = await fetch(url , {
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchPage(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+  const response = await fetch(url, {
     headers: {
-        "User-Agent": "FlyRankInternshipA9/1.0 (+https://github.com/majorleaf/polite-scraper)", 
+      "User-Agent": "FlyRankInternshipA9/1.0 (+https://github.com/majorleaf/polite-scraper)",
     },
-    signal: controller.signal
-   });
-   clearTimeout(timeoutId);
+    signal: controller.signal,
+  });
 
-   if (response.status !== 200 ) {
-    throw new Error(`Fetch failed: ${response.status}  for ${url}`)
-   }
-   const html = await response.text();
-   return html;
+  clearTimeout(timeoutId);
+
+  if (response.status !== 200) {
+    throw new Error(`Fetch failed: ${response.status} for ${url}`);
+  }
+
+  return await response.text();
 }
 
-function extractBooksLinksAndNext(html: string, pageUrl: string): { bookLinks: string[]; nextPageUrl: string | null } {
-    const $ = cheerio.load(html);
-    const bookLinks: string[] = [];
+async function fetchCatalougePage(pageNum: number): Promise<string> {
+  const cachePath = `cache/catalogue-page-${pageNum}.html`;
+
+  if (existsSync(cachePath)) {
+    console.log(`CACHE HIT: ${cachePath}`);
+    return readFileSync(cachePath, "utf-8");
+  }
+
+  const url = `https://books.toscrape.com/catalogue/page-${pageNum}.html`;
+  console.log(`FETCH: ${url}`);
+  await sleep(DELAY_MS);
+  const html = await fetchPage(url);
+  writeFileSync(cachePath, html, "utf-8");
+  return html;
+}
+
+function extractBookLinksAndNext(
+  html: string,
+  pageUrl: string
+): { bookLinks: string[]; nextPageUrl: string | null } {
+  const $ = cheerio.load(html);
+  const bookLinks: string[] = [];
 
   $("article.product_pod h3 a").each((_, el) => {
     const href = $(el).attr("href");
@@ -37,42 +63,26 @@ function extractBooksLinksAndNext(html: string, pageUrl: string): { bookLinks: s
   return { bookLinks, nextPageUrl };
 }
 
-fetchCatalougePage(1) .then(html => {
-    const $ = cheerio.load(html);
-  const pageUrl = "https://books.toscrape.com/catalogue/page-1.html";
-    const links: string[] = [];
+async function discoverAllBookLinks(): Promise<{ links: string[]; pagesVisited: number }> {
+  const links: string[] = [];
+  let pageNum = 1;
+  let currentUrl: string | null = "https://books.toscrape.com/catalogue/page-1.html";
 
-    $("article.product_pod h3 a").each((_, el) => {
-        const href = $(el).attr("href");
-        if (href) {
-            const absoluteUrl = new URL(href, pageUrl).toString();
-            links.push(absoluteUrl);
-        }
-    });
+  while (currentUrl && pageNum <= MAX_PAGES) {
+    const html = await fetchCatalougePage(pageNum);
+    const result = extractBookLinksAndNext(html, currentUrl);
 
-    const nextHref = $("li.next a").attr("href");
-    const nextPageUrl = nextHref ? new URL(nextHref, pageUrl).toString() : null;
-
-    console.log(links.length);
-    console.log(links[0]);
-    console.log("next page:", nextPageUrl);
-    console.log("result.bookLinks.length");
-    console.log("result.nextPageUrl");
-});
-
-
-async function fetchCatalougePage(pageNum: number): Promise<string> {
-  const cachePath = `cache/catalogue-page-${pageNum}.html`;
-
-  if (existsSync(cachePath)) {
-    console.log(`CACHE HIT: ${cachePath}`);
-    const html = readFileSync(cachePath, "utf-8");
-    return html;
+    links.push(...result.bookLinks);
+    currentUrl = result.nextPageUrl;
+    pageNum++;
   }
 
-  const url = `https://books.toscrape.com/catalogue/page-${pageNum}.html`;
-  console.log(`FETCH: ${url}`);
-  const html = await fetchPage(url);
-  writeFileSync(cachePath, html, "utf-8");
-  return html;
+  return { links, pagesVisited: pageNum - 1 };
 }
+
+discoverAllBookLinks().then(({ links, pagesVisited }) => {
+  const unique = [...new Set(links)];
+  console.log(`catalogue_pages=${pagesVisited}`);
+  console.log(`discovered=${links.length}`);
+  console.log(`unique_urls=${unique.length}`);
+});
