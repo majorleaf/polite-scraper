@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import * as cheerio from "cheerio";
+import { z } from "zod";
 
 const DEBUG = process.env.DEBUG === "1";
 const debug = (label: string, value: unknown): void => {
@@ -29,6 +30,68 @@ type RawBook = {
   source_page: string;
   fetched_at: string;
 };
+
+const ValidatedBookSchema = z.object({
+  title: z.string().min(1),
+  product_url: z.string().url(),
+  price_gbp: z.number().positive(),
+  price_text: z.string(),
+  availability_text: z.string().min(1),
+  rating: z.number().int().min(1).max(5),
+  description: z.string().nullable(),
+  source_page: z.string().url(),
+  fetched_at: z.string(),
+});
+
+type ValidatedBook = z.infer<typeof ValidatedBookSchema>;
+
+const RATING_WORDS: Record<string, number> = {
+  One: 1,
+  Two: 2,
+  Three: 3,
+  Four: 4,
+  Five: 5,
+};
+function parseRating(ratingText: string): number | null {
+  return RATING_WORDS[ratingText] ?? null;
+}
+
+
+console.log(parseRating("Three"));
+console.log(parseRating("Bogus"));
+
+type ValidationResult = 
+  | { ok: true; book: ValidatedBook }
+  | { ok: false; url: string; reason: string };
+
+
+
+function validateBook( raw: RawBook): ValidationResult  {
+  const price_gbp = parsePriceGbp(raw.price_text);
+  const rating = parseRating(raw.rating_text);
+
+  const candidate = {
+    title: raw.title,
+    product_url: raw.product_url,
+    price_gbp,
+    price_text: raw.price_text,
+    availability_text: raw.availability_text,
+    rating,
+    description: raw.description,
+    source_page: raw.source_page,
+    fetched_at: raw.fetched_at,
+  };
+
+  const result = ValidatedBookSchema.safeParse(candidate);
+
+  if (result.success) {
+    return { ok: true, book: result.data };
+  }
+
+  const reason = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+  return { ok: false, url: raw.product_url, reason };
+}
+
 
 function extractCoreFields(html: string): CoreFields {
   const $ = cheerio.load(html);
@@ -144,6 +207,14 @@ function extractBookLinksAndNext(
   return { bookLinks, nextPageUrl };
 }
 
+function parsePriceGbp(priceText: string): number | null {
+  const match = priceText.match(/[\d.]+/);
+  if (!match) return null;
+
+  const value = parseFloat(match[0]);
+  return  isNaN(value) ? null : value;
+}
+
 async function discoverAllBookLinks(): Promise<{ links: string[]; pagesVisited: number }> {
   const links: string[] = [];
   let pageNum = 1;
@@ -179,7 +250,29 @@ async function extractAllRawBooks(): Promise<RawBook[]> {
   return books;
 }
 
-extractAllRawBooks().then((books) => {
-  console.log(`detail_pages=${books.length}`);
-  console.log(books[0]);
-});
+
+async function runPipeline(): Promise<void> {
+  const rawBooks = await extractAllRawBooks();
+
+  const validBooks: ValidatedBook[] = [];
+  const errors: { url: string; reason: string }[] = [];
+
+  for (const raw of rawBooks) {
+    const result = validateBook(raw);
+    if (result.ok) {
+      validBooks.push(result.book);
+    } else {
+      errors.push({ url: result.url, reason: result.reason });
+    }
+  }
+
+  mkdirSync("output", { recursive: true });
+  writeFileSync("output/books.json", JSON.stringify(validBooks, null, 2), "utf-8");
+  writeFileSync("output/errors.json", JSON.stringify(errors, null, 2), "utf-8");
+
+  console.log(`valid=${validBooks.length}`);
+  console.log(`invalid=${errors.length}`);
+}
+
+
+runPipeline();
