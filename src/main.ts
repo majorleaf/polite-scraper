@@ -31,6 +31,10 @@ type RawBook = {
   fetched_at: string;
 };
 
+type FetchOutcome =
+  | { ok: true; url: string; html: string }
+  | { ok: false; url: string; reason: string };
+
 const ValidatedBookSchema = z.object({
   title: z.string().min(1),
   product_url: z.string().url(),
@@ -134,6 +138,12 @@ function extractRawBook(html: string, productUrl: string, sourcePage: string): R
   };
 }
 
+class FetchStatusError extends Error {
+  constructor(public status: number, url: string) {
+    super(`Fetch failed: ${status} for ${url}`);
+  }
+}
+
 async function fetchPage(url: string): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
@@ -148,7 +158,7 @@ async function fetchPage(url: string): Promise<string> {
   clearTimeout(timeoutId);
 
   if (response.status !== 200) {
-    throw new Error(`Fetch failed: ${response.status} for ${url}`);
+    throw new FetchStatusError(response.status, url);
   }
 
   return await response.text();
@@ -185,6 +195,36 @@ async function fetchBookPage(url: string): Promise<string> {
   mkdirSync("cache/books", { recursive: true });
   writeFileSync(cachePath, html, "utf-8");
   return html;
+
+}
+
+async function fetchBookPageSafe(url: string): Promise<FetchOutcome> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const html = await fetchBookPage(url);
+      return { ok: true, url, html };
+    } catch (err) {
+      const isLastAttempt = attempt === 2;
+
+      if (err instanceof FetchStatusError) {
+        if (err.status === 404 || err.status === 403) {
+          return { ok: false, url, reason: err.message };
+        }
+        if (isLastAttempt) {
+          return { ok: false, url, reason: err.message };
+        }
+        console.log(`RETRY (${err.status}): ${url}`);
+        continue;
+      }
+
+      const reason = err instanceof Error ? err.message : String(err);
+      if (isLastAttempt) {
+        return { ok: false, url, reason };
+      }
+      console.log(`RETRY (timeout/network): ${url}`);
+    }
+  }
+  return { ok: false, url, reason: "unreachable" };
 }
 
 function extractBookLinksAndNext(
@@ -232,7 +272,7 @@ async function discoverAllBookLinks(): Promise<{ links: string[]; pagesVisited: 
   return { links, pagesVisited: pageNum - 1 };
 }
 
-async function extractAllRawBooks(): Promise<RawBook[]> {
+async function extractAllRawBooks(): Promise<{ books: RawBook[]; fetchFailures: { url: string; reason: string }[] }> {
   const { links, pagesVisited } = await discoverAllBookLinks();
   const unique = [...new Set(links)];
   console.log(`catalogue_pages=${pagesVisited}`);
@@ -240,39 +280,56 @@ async function extractAllRawBooks(): Promise<RawBook[]> {
   console.log(`unique_urls=${unique.length}`);
 
   const books: RawBook[] = [];
+  const fetchFailures: { url: string; reason: string }[] = [];
 
   for (const url of unique) {
-    const html = await fetchBookPage(url);
-    const sourcePage = url; // placeholder — fixed in the next stage
-    books.push(extractRawBook(html, url, sourcePage));
+    const outcome = await fetchBookPageSafe(url);
+    if (!outcome.ok) {
+      console.log(`SKIP (fetch failed): ${outcome.url} — ${outcome.reason}`);
+      fetchFailures.push({ url: outcome.url, reason: outcome.reason });
+      continue;
+    }
+    books.push(extractRawBook(outcome.html, url, url));
   }
 
-  return books;
+  return { books, fetchFailures };
 }
 
-
 async function runPipeline(): Promise<void> {
-  const rawBooks = await extractAllRawBooks();
+  const startTime = Date.now();
+  const startedAt = new Date(startTime).toISOString();
+  const { books: rawBooks, fetchFailures } = await extractAllRawBooks();
 
   const validBooks: ValidatedBook[] = [];
-  const errors: { url: string; reason: string }[] = [];
+  const validationErrors: { url: string; reason: string }[] = [];
 
   for (const raw of rawBooks) {
     const result = validateBook(raw);
     if (result.ok) {
       validBooks.push(result.book);
     } else {
-      errors.push({ url: result.url, reason: result.reason });
+      validationErrors.push({ url: result.url, reason: result.reason });
     }
   }
 
+  const allErrors = [...fetchFailures, ...validationErrors];
+  const durationMs = Date.now() - startTime;
+
   mkdirSync("output", { recursive: true });
   writeFileSync("output/books.json", JSON.stringify(validBooks, null, 2), "utf-8");
-  writeFileSync("output/errors.json", JSON.stringify(errors, null, 2), "utf-8");
+  writeFileSync("output/errors.json", JSON.stringify(allErrors, null, 2), "utf-8");
+  
+  const report = {
+    started_at: startedAt,
+    duration_ms: durationMs,
+    valid_records: validBooks.length,
+    invalid_records: allErrors.length,
+    failed_pages: fetchFailures.length,
+  };
 
-  console.log(`valid=${validBooks.length}`);
-  console.log(`invalid=${errors.length}`);
+ writeFileSync("output/run-report.json", JSON.stringify(report, null, 2), "utf-8");
+
+  console.log(report);
 }
-
 
 runPipeline();
