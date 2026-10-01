@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.cache/
+records.json
+errors.json
+run-report.json
+.env

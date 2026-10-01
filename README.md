@@ -138,3 +138,30 @@ This scraper only touches a site explicitly built for practicing scraping, at a 
 fixed scope (3 pages, 60 books). Going forward: prefer an official API when one exists,
 never bypass a login, paywall, or explicit block, and only collect the data actually
 needed for the task — not everything a page happens to expose.
+
+# AI vs. Me
+
+What the AI did better:
+
+Split the code into separate files by responsibility (config.ts, fetcher.ts, scraper.ts, types.ts, index.ts) instead of one large file. A real improvement worth adopting as the project grows.
+Used z.string().datetime() for fetched_at instead of a plain z.string(), catching a malformed timestamp mine would silently accept.
+Kept raw and parsed values (raw_price/price, raw_rating/rating) together in the stored schema itself, not just in a pre-validation step.
+
+What it got wrong or silently skipped:
+
+source_page is wrong for every record. It hardcodes the starting catalogue URL (page-1.html) and passes that same value to every book, regardless of which page it was actually discovered on. My version has the same underlying gap (flagged honestly as a known limitation above), but the AI's version presents it with no flag at all — confidently wrong data is worse than data known to be imprecise, since source_page is the field meant to answer "where did this value come from" when something looks wrong later.
+run-report.json is missing two required fields — pages fetched and cache hits — even though the original assignment spec names both explicitly. The AI logs a discovered-URL count to the console but never writes it to the report file.
+Fetch failures never reach errors.json. A 404 or timeout increments a counter for the report but the URL and reason are only console.error'd, not persisted — that information is lost once the terminal closes. My version writes both fetch and validation failures to the same errors file.
+The deliberately-broken test URL is permanent, pushed into every run with no flag or comment marking it as a one-time proof, unlike the checkpoint test in this project, which was added, confirmed, and removed.
+
+What my prompt forgot to say:
+
+I didn't specify that source_page must be tracked accurately per-URL through a flattened, deduped list — leaving the mechanism to guesswork, which is exactly where both the AI's version and my own implementation fell short.
+I listed only "start time, duration, valid/invalid record counts, failed page count" for the report, dropping "pages fetched" and "cache hits" from the original assignment's spec. The AI built precisely what was asked — the gap was in the request, not the execution.
+I said failures "go to a separate errors file with a reason" without explicitly requiring both fetch and validation failures to land there, so the AI treated fetch failures as count-only.
+
+Takeaway: the AI didn't misunderstand the task — it executed the prompt faithfully. The real gaps were gaps in what the prompt specified, not in the AI's reasoning. Writing a precise prompt is as much a part of this skill as writing the scraper itself.
+
+# Ethics note
+
+This scraper only touches a site explicitly built for practicing scraping, at a small, fixed scope (3 pages, 60 books). Going forward: prefer an official API when one exists, never bypass a login, paywall, or explicit block, and only collect the data actually needed for the task — not everything a page happens to expose.
