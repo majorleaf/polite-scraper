@@ -127,6 +127,12 @@ and in `run-report.json`'s `failed_pages` count — instead of crashing the whol
   some edge cases it may not perfectly reflect per-page origin. Noted as a simplification,
   not fixed in this version.
 
+  ## Extras
+
+- **CSV export** (`output/books.csv`) — same 9 fields as `books.json`. The `description`
+  field often contains commas and quotes, so a proper CSV writer (`csv-stringify`) is
+  used rather than hand-joining strings, to handle quoting/escaping correctly.
+
 
 This scraper only touches a site explicitly built for practicing scraping, at a small,
 fixed scope (3 pages, 60 books). Going forward: prefer an official API when one exists,
