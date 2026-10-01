@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { stringify } from "csv-stringify/sync";
 import * as cheerio from "cheerio";
 import { z } from "zod";
 
@@ -255,6 +256,26 @@ function parsePriceGbp(priceText: string): number | null {
   return  isNaN(value) ? null : value;
 }
 
+
+function writeBooksCsv(books: ValidatedBook[]): void {
+  const csv = stringify(books, {
+    header: true,
+    columns: [
+      "title",
+      "product_url",
+      "price_gbp",
+      "price_text",
+      "availability_text",
+      "rating",
+      "description",
+      "source_page",
+      "fetched_at",
+    ],
+  });
+
+  writeFileSync("output/books.csv", csv, "utf-8");
+}
+
 async function discoverAllBookLinks(): Promise<{ links: string[]; pagesVisited: number }> {
   const links: string[] = [];
   let pageNum = 1;
@@ -295,6 +316,7 @@ async function extractAllRawBooks(): Promise<{ books: RawBook[]; fetchFailures: 
   return { books, fetchFailures };
 }
 
+
 async function runPipeline(): Promise<void> {
   const startTime = Date.now();
   const startedAt = new Date(startTime).toISOString();
@@ -317,6 +339,8 @@ async function runPipeline(): Promise<void> {
 
   mkdirSync("output", { recursive: true });
   writeFileSync("output/books.json", JSON.stringify(validBooks, null, 2), "utf-8");
+  writeFileSync("output/books.json", JSON.stringify(validBooks, null, 2), "utf-8");
+  writeBooksCsv(validBooks);
   writeFileSync("output/errors.json", JSON.stringify(allErrors, null, 2), "utf-8");
   
   const report = {
